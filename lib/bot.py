@@ -194,7 +194,7 @@ async def _handle_message(bot: Bot, msg) -> None:
     try:
         await bot.send_message(
             chat_id=msg.chat.id,
-            text=f"{name}, your message was removed — link(s) not approved: {', '.join(offending)}",
+            text=f"{name}, your message was removed — link not approved in this group.",
         )
     except TelegramError as err:
         print(f"[guard] could not send warning: {err}")

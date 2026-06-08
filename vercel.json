@@ -1,10 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/telegram.js": {
+    "api/telegram.py": {
       "maxDuration": 15
     },
-    "api/setup.js": {
+    "api/setup.py": {
       "maxDuration": 15
     }
   }

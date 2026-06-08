@@ -1,24 +1,25 @@
-# Telegram Link-Guard Bot
+# Telegram Link-Guard Bot (Python)
 
-A Telegram group bot built with [Telegraf](https://telegraf.js.org/) that automatically deletes any message containing a link whose domain is **not** on an approved whitelist. Keeps groups free of unsolicited links, ads, and online-game promos.
+A Telegram group bot built with [python-telegram-bot](https://python-telegram-bot.org/) that automatically deletes any message containing a link whose domain is **not** on an approved whitelist. Keeps groups free of unsolicited links, ads, and online-game promos.
 
 Two deployment modes share the same bot logic:
 
-- **Vercel** — deployed as a serverless function at `/api/telegram`, receiving Telegram updates via webhook. Whitelist lives in **Upstash Redis**.
-- **Local / VPS / Pi** — `npm start` runs `index.js` in long-polling mode. Same `lib/bot.js`, same Upstash Redis whitelist.
+- **Vercel** — deployed as Python serverless functions at `/api/telegram` (webhook) and `/api/setup` (one-shot configuration). Whitelist lives in **Upstash Redis**.
+- **Local / VPS / Pi** — `python index.py` runs the bot in long-polling mode using the same `lib/bot.py`.
 
 ## Features
 
 - Detects URLs in messages, captions, edits, mentions (`@username`), and text-link buttons.
-- Deletes any message with a domain **not** on the whitelist; replies with a short warning.
-- Logs every removal to the function/console logs with user ID, chat ID, and offending host(s).
+- Deletes **any** unapproved link, including from admins (admin bypass has been removed — see [Admin behaviour](#admin-behaviour)).
+- Posts a short warning reply identifying the offending domains.
+- Logs every removal with user ID, chat ID, and offending host(s) to Vercel function logs.
 - Admins manage the whitelist in-chat with `/addlink`, `/removelink`, `/listlinks`.
-- Group admins always bypass the filter.
 - Subdomains are treated as distinct entries (e.g. `youtube.com` ≠ `m.youtube.com`).
+- Strict hostname validation — junk input to `/addlink foo bar` is rejected.
 
 ## Requirements
 
-- Node.js **22.x** (matches Vercel runtime). Node 18+ works locally.
+- Python **3.11+** locally (Vercel runs Python 3.12).
 - A Telegram bot token from [@BotFather](https://t.me/BotFather).
 - An Upstash Redis database (free tier is enough). Either provision from the [Vercel Marketplace](https://vercel.com/marketplace) or directly at [console.upstash.com](https://console.upstash.com).
 
@@ -27,15 +28,16 @@ Two deployment modes share the same bot logic:
 ```
 .
 ├── api/
-│   ├── telegram.js     # POST webhook receiver
-│   └── setup.js        # GET one-shot: registers webhook + seeds Redis
+│   ├── telegram.py    # POST webhook receiver
+│   └── setup.py       # GET one-shot: registers webhook + seeds Redis
 ├── lib/
-│   ├── bot.js          # Telegraf instance + handlers (shared)
-│   └── whitelist.js    # Upstash Redis helpers
-├── index.js            # local long-polling entrypoint
-├── whitelist.json      # seed list — copied into Redis on first /api/setup
+│   ├── __init__.py
+│   ├── bot.py         # dispatcher + handlers (shared)
+│   └── whitelist.py   # Upstash Redis helpers
+├── index.py           # local long-polling entrypoint
+├── whitelist.json     # seed list — copied into Redis on first /api/setup
+├── requirements.txt
 ├── vercel.json
-├── package.json
 ├── .env.example
 ├── .gitignore
 ├── README.md
@@ -62,10 +64,11 @@ In a Telegram chat with [@BotFather](https://t.me/BotFather):
 ### 2. Push to Vercel
 
 ```powershell
-npm install
 npx vercel link
 npx vercel --prod
 ```
+
+Vercel auto-detects this as a Python project via `requirements.txt`.
 
 ### 3. Connect Upstash Redis
 
@@ -122,7 +125,7 @@ If you ever need to wipe pending updates, append `&reset=1` to the URL.
 2. Promote to **Administrator**.
 3. Grant the **Delete Messages** permission.
 
-Test from a non-admin account: send `youtube.com` → the message should disappear and a warning should appear.
+Test: send `youtube.com` in the group — message should disappear within ~1 second with a warning reply.
 
 ---
 
@@ -131,7 +134,9 @@ Test from a non-admin account: send `youtube.com` → the message should disappe
 For development on your own machine — no public URL needed.
 
 ```powershell
-npm install
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 Copy-Item .env.example .env
 notepad .env
 ```
@@ -142,14 +147,13 @@ Fill in `BOT_TOKEN`. For Upstash credentials, after linking with Vercel:
 npx vercel env pull .env
 ```
 
-Or paste the Upstash REST URL and token manually into `.env`. Then:
+Or paste the Upstash REST URL and token manually into `.env`. Then run:
 
 ```powershell
-npm start          # node --use-system-ca index.js
-npm run dev        # with auto-restart
+python index.py
 ```
 
-The local script and the Vercel function share `lib/bot.js`, so behaviour is identical.
+The local script and the Vercel function share `lib/bot.py`, so behaviour is identical.
 
 ---
 
@@ -165,7 +169,7 @@ Stored as a Redis set under the key `whitelist:domains`.
 
 ## Commands
 
-All commands must be sent inside a group. Only group admins get a response.
+All commands must be sent inside a group. Only group admins receive a response.
 
 | Command | Action |
 |---|---|
@@ -175,13 +179,29 @@ All commands must be sent inside a group. Only group admins get a response.
 
 The bot accepts `youtube.com`, `https://youtube.com`, or `https://youtube.com/watch?v=x` — it extracts the hostname.
 
+## Admin behaviour
+
+There are **two separate** admin checks in the code:
+
+1. **Commands** (`/addlink`, `/removelink`, `/listlinks`) — only admins receive a reply. Non-admins are silently ignored. This is enforced in `_handle_command`.
+2. **Link filtering** (the auto-delete behaviour) — **admin bypass has been removed**. Any user, including the group owner, will have their unapproved-link messages deleted.
+
+If you want admin messages to bypass the link filter again, edit `lib/bot.py` → `_handle_message` and re-add:
+
+```python
+if await is_admin(bot, msg.chat.id, msg.from_user.id):
+    return
+```
+
+right after the `if not msg.from_user: return` line.
+
 ## How detection works
 
-For every non-admin message in a group:
+For every message in a group (admin or not):
 
 1. Reads Telegram's message `entities` to find URLs, text-links, and `@mentions`.
 2. Runs a fallback regex over the text/caption to catch bare links Telegram didn't tag.
-3. Normalizes each URL to a lowercase hostname (strict validation — only real-looking domains are accepted).
+3. Normalizes each URL to a lowercase hostname via `urllib.parse`, then validates against a strict domain regex (rejects junk like `not a url`).
 4. Issues a single `SMISMEMBER` against Redis to check all hosts at once.
 5. If **any** hostname is not in the whitelist → deletes the message, posts a warning, logs the event.
 
@@ -194,8 +214,8 @@ Failures (missing permission, message too old, etc.) are logged but never throw 
 - **Bot ignores normal messages with links in a group.** Group Privacy is still enabled in @BotFather. Disable it, then **remove and re-add the bot** to the group.
 - **Function logs show webhook 401s.** `WEBHOOK_SECRET` doesn't match what was registered. Re-run `/api/setup` to register the current secret.
 - **`/listlinks` doesn't reply, even though I'm an admin.** Try `/listlinks@<botname>` — the explicit form bypasses Group Privacy.
-- **Messages I send aren't being deleted.** You are a group admin. The bot bypasses admins by design — test from a non-admin account, or remove the `if (await isAdmin(ctx)) return next?.();` line in [lib/bot.js](./lib/bot.js#L120) if you want admins filtered too.
-- **Local `npm start` works, Vercel doesn't.** Likely missing env vars in production. Confirm all 5 are set in Production scope.
+- **`ModuleNotFoundError: No module named 'lib'` on Vercel.** Each handler adds the project root to `sys.path` at the top of the file to import `lib/*`. Make sure those lines aren't deleted.
+- **Local `python index.py` works, Vercel doesn't.** Likely missing env vars in production. Confirm `BOT_TOKEN`, `WEBHOOK_SECRET`, `SETUP_SECRET`, and the Upstash variables are all set in **Production** scope.
 
 ## Security
 
@@ -208,7 +228,7 @@ Full policy, threat model, and operational hardening guidance are in [SECURITY.m
 - Revoke the bot token via `/revoke` in @BotFather if it leaks.
 - Grant the bot only the *Delete Messages* admin permission.
 - Don't whitelist URL shorteners (`bit.ly`, `t.co`, …) — they bypass the filter.
-- Group admins bypass the filter by design — only promote people you trust.
+- Only promote trusted users to admin — they can still modify the whitelist via `/addlink`.
 
 ## License
 

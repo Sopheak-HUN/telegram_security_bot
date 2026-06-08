@@ -4,10 +4,10 @@
 
 This project currently supports security updates on the latest commit of the `main` branch only. Older releases or forks are not maintained.
 
-| Version | Supported |
-| ------- | --------- |
-| `main`  | ✅        |
-| Other   | ❌        |
+| Version  | Supported |
+| -------- | --------- |
+| `main` | ✅        |
+| Other    | ❌        |
 
 ## Reporting a Vulnerability
 
@@ -15,7 +15,7 @@ This project currently supports security updates on the latest commit of the `ma
 
 If you believe you have found a vulnerability — for example, a way to bypass the link filter, leak the bot token, or escalate privileges through a bot command — report it privately to:
 
-- **Email:** turbotech.kh@gmail.com
+- **Email:** sopheakhun.dev@gmail.com
 - **Subject line:** `[SECURITY] telegram-link-guard-bot — <short description>`
 
 Please include:
@@ -27,12 +27,12 @@ Please include:
 
 ### What to expect
 
-| Step | Target time |
-| --- | --- |
-| Acknowledgement of your report | within **72 hours** |
-| Initial assessment & severity rating | within **7 days** |
-| Fix or mitigation released | within **30 days** for high/critical |
-| Public disclosure (coordinated with you) | after a fix ships, or **90 days**, whichever comes first |
+| Step                                     | Target time                                                   |
+| ---------------------------------------- | ------------------------------------------------------------- |
+| Acknowledgement of your report           | within**72 hours**                                      |
+| Initial assessment & severity rating     | within**7 days**                                        |
+| Fix or mitigation released               | within**30 days** for high/critical                     |
+| Public disclosure (coordinated with you) | after a fix ships, or**90 days**, whichever comes first |
 
 Researchers who report in good faith will be credited in the release notes unless they request anonymity.
 
@@ -62,12 +62,12 @@ This bot is intended to run as a long-lived process on a server or workstation. 
 
 ### Trust boundaries
 
-| Actor | Trust level |
-| --- | --- |
-| Telegram Bot API | Trusted transport |
-| Group admins | Trusted — they can modify the whitelist |
-| Group members | **Untrusted** — all input is treated as hostile |
-| The host filesystem | Trusted (anyone with shell access to it owns the bot) |
+| Actor               | Trust level                                            |
+| ------------------- | ------------------------------------------------------ |
+| Telegram Bot API    | Trusted transport                                      |
+| Group admins        | Trusted — they can modify the whitelist               |
+| Group members       | **Untrusted** — all input is treated as hostile |
+| The host filesystem | Trusted (anyone with shell access to it owns the bot)  |
 
 ## Operational Security Guidance
 

@@ -232,4 +232,4 @@ Full policy, threat model, and operational hardening guidance are in [SECURITY.m
 
 ## License
 
-MIT
+[MIT](./LICENSE) © 2026 Sopheak HUN

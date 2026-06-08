@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": null,
+  "outputDirectory": null,
+  "installCommand": null,
+  "regions": ["sin1"],
   "functions": {
     "api/telegram.py": {
       "maxDuration": 15

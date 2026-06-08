@@ -1,6 +1,20 @@
-node_modules/
 .env
+.env*
 *.log
 .claude
 skills-lock.json
+.vercel
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Leftover Node artifacts (in case of mixed history)
+node_modules/
 bun.lock

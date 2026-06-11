@@ -58,8 +58,6 @@ def extract_hostnames(msg) -> list[str]:
             host = to_hostname(ent.url)
             if host:
                 hosts.add(host)
-        elif ent.type == "mention":
-            hosts.add("t.me")
 
     if text:
         for m in URL_REGEX.findall(text):

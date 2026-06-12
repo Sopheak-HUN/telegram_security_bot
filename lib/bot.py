@@ -3,7 +3,7 @@ import re
 import time
 from urllib.parse import urlparse
 
-from telegram import Bot, Update
+from telegram import Bot, ReplyParameters, Update
 from telegram.error import TelegramError
 
 from .whitelist import add_domain, check_hosts, list_domains, remove_domain
@@ -66,6 +66,54 @@ def extract_hostnames(msg) -> list[str]:
                 hosts.add(host)
 
     return list(hosts)
+
+
+_bot_username: str | None = None
+
+
+async def get_bot_username(bot: Bot) -> str | None:
+    global _bot_username
+    if _bot_username is None:
+        try:
+            me = await bot.get_me()
+            _bot_username = (me.username or "").lower()
+        except TelegramError as err:
+            print(f"get_me failed: {err}")
+            return None
+    return _bot_username or None
+
+
+async def _maybe_greet_mention(bot: Bot, msg) -> None:
+    text = msg.text or msg.caption or ""
+    entities = msg.entities or msg.caption_entities or []
+    if not entities or not msg.from_user:
+        return
+
+    mentioned = False
+    for ent in entities:
+        if ent.type == "mention":
+            handle = text[ent.offset + 1 : ent.offset + ent.length].lower()
+            username = await get_bot_username(bot)
+            if username and handle == username:
+                mentioned = True
+                break
+        elif ent.type == "text_mention" and ent.user and ent.user.id == bot.id:
+            mentioned = True
+            break
+
+    if not mentioned:
+        return
+
+    user = msg.from_user
+    name = f"@{user.username}" if user.username else (user.first_name or "there")
+    try:
+        await bot.send_message(
+            chat_id=msg.chat.id,
+            text=f"Hello {name} 👋",
+            reply_parameters=ReplyParameters(message_id=msg.message_id),
+        )
+    except TelegramError as err:
+        print(f"[greet] could not send greeting: {err}")
 
 
 _admin_cache: dict[int, tuple[set[int], float]] = {}
@@ -174,11 +222,13 @@ async def _handle_message(bot: Bot, msg) -> None:
 
     hosts = extract_hostnames(msg)
     if not hosts:
+        await _maybe_greet_mention(bot, msg)
         return
 
     approved = await check_hosts(hosts)
     offending = [h for h, ok in zip(hosts, approved) if not ok]
     if not offending:
+        await _maybe_greet_mention(bot, msg)
         return
 
     user = msg.from_user

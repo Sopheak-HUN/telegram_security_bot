@@ -83,29 +83,82 @@ async def get_bot_username(bot: Bot) -> str | None:
     return _bot_username or None
 
 
-async def _maybe_greet_mention(bot: Bot, msg) -> None:
+async def _mentions_bot(bot: Bot, msg) -> bool:
     text = msg.text or msg.caption or ""
     entities = msg.entities or msg.caption_entities or []
-    if not entities or not msg.from_user:
-        return
-
-    mentioned = False
     for ent in entities:
         if ent.type == "mention":
             handle = text[ent.offset + 1 : ent.offset + ent.length].lower()
             username = await get_bot_username(bot)
             if username and handle == username:
-                mentioned = True
-                break
+                return True
         elif ent.type == "text_mention" and ent.user and ent.user.id == bot.id:
-            mentioned = True
-            break
+            return True
+    return False
 
-    if not mentioned:
+
+def _display_name(user) -> str:
+    if user and user.username:
+        return f"@{user.username}"
+    if user and user.first_name:
+        return user.first_name
+    return "user"
+
+
+async def _handle_delete_request(bot: Bot, msg) -> None:
+    if not await is_admin(bot, msg.chat.id, msg.from_user.id):
+        return  # silently ignore non-admins
+
+    target = msg.reply_to_message
+    # In forum topics every message "replies" to the topic service message;
+    # only act on a real reply to a user's message.
+    if target is None or target.forum_topic_created is not None:
+        await bot.send_message(
+            chat_id=msg.chat.id,
+            text="Reply to the message you want removed, mention me and include !delete.",
+        )
         return
 
-    user = msg.from_user
-    name = f"@{user.username}" if user.username else (user.first_name or "there")
+    name = _display_name(target.from_user)
+
+    try:
+        await bot.delete_message(chat_id=msg.chat.id, message_id=target.message_id)
+    except TelegramError as err:
+        print(f"[mod] could not delete msg {target.message_id}: {err}")
+        return  # nothing was deleted — skip the warning
+
+    # clean up the "!delete" trigger message as well
+    try:
+        await bot.delete_message(chat_id=msg.chat.id, message_id=msg.message_id)
+    except TelegramError as err:
+        print(f"[mod] could not delete trigger msg {msg.message_id}: {err}")
+
+    try:
+        await bot.send_message(
+            chat_id=msg.chat.id,
+            text=f"⚠️ {name}, your message was removed by an admin.",
+        )
+    except TelegramError as err:
+        print(f"[mod] could not send warning: {err}")
+
+    print(
+        f"[mod] admin {msg.from_user.id} removed msg {target.message_id} "
+        f"from {name} in chat {msg.chat.id}"
+    )
+
+
+async def _handle_mention(bot: Bot, msg) -> None:
+    if not msg.from_user:
+        return
+    if not await _mentions_bot(bot, msg):
+        return
+
+    text = msg.text or msg.caption or ""
+    if "!delete" in text.lower():
+        await _handle_delete_request(bot, msg)
+        return
+
+    name = _display_name(msg.from_user)
     try:
         await bot.send_message(
             chat_id=msg.chat.id,
@@ -222,13 +275,13 @@ async def _handle_message(bot: Bot, msg) -> None:
 
     hosts = extract_hostnames(msg)
     if not hosts:
-        await _maybe_greet_mention(bot, msg)
+        await _handle_mention(bot, msg)
         return
 
     approved = await check_hosts(hosts)
     offending = [h for h, ok in zip(hosts, approved) if not ok]
     if not offending:
-        await _maybe_greet_mention(bot, msg)
+        await _handle_mention(bot, msg)
         return
 
     user = msg.from_user

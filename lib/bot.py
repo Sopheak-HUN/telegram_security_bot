@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from telegram import Bot, ReplyParameters, Update
 from telegram.error import TelegramError
 
+from .spam import SPAM_LIMIT, SPAM_WINDOW_SECONDS, register_message
 from .whitelist import add_domain, check_hosts, list_domains, remove_domain
 
 URL_REGEX = re.compile(
@@ -262,11 +263,39 @@ async def _handle_command(bot: Bot, msg, text: str) -> None:
         )
 
 
-async def _handle_message(bot: Bot, msg) -> None:
+async def _warn_if_spamming(bot: Bot, msg) -> None:
+    if msg.from_user.is_bot:
+        return
+    try:
+        hit_limit = await register_message(msg.chat.id, msg.from_user.id)
+    except Exception as err:  # Redis trouble must not break the link guard
+        print(f"[spam] tracking failed: {err}")
+        return
+    if not hit_limit:
+        return
+
+    name = _display_name(msg.from_user)
+    try:
+        await bot.send_message(
+            chat_id=msg.chat.id,
+            text=(
+                f"⚠️ {name}, please slow down — "
+                f"{SPAM_LIMIT} messages in {SPAM_WINDOW_SECONDS}s looks like spam."
+            ),
+        )
+    except TelegramError as err:
+        print(f"[spam] could not send warning: {err}")
+    print(f"[spam] warned {name} (id={msg.from_user.id}) in chat {msg.chat.id}")
+
+
+async def _handle_message(bot: Bot, msg, is_edit: bool = False) -> None:
     if msg.chat.type not in ("group", "supergroup"):
         return
     if not msg.from_user:
         return
+
+    if not is_edit:  # editing a message is not spamming
+        await _warn_if_spamming(bot, msg)
 
     # NOTE: admin bypass removed — admins (including the group owner) are
     # filtered too. Re-add the lines below if you want admin messages to pass:
@@ -320,4 +349,4 @@ async def dispatch_update(update_dict: dict) -> None:
         if text.startswith("/"):
             await _handle_command(bot, msg, text)
         else:
-            await _handle_message(bot, msg)
+            await _handle_message(bot, msg, is_edit=update.message is None)

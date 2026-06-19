@@ -7,6 +7,7 @@ from telegram import Bot, ReplyParameters, Update
 from telegram.error import TelegramError
 
 from .spam import SPAM_LIMIT, SPAM_WINDOW_SECONDS, register_message
+from .ai import is_spam
 from .whitelist import add_domain, check_hosts, list_domains, remove_domain
 
 URL_REGEX = re.compile(
@@ -288,6 +289,29 @@ async def _warn_if_spamming(bot: Bot, msg) -> None:
     print(f"[spam] warned {name} (id={msg.from_user.id}) in chat {msg.chat.id}")
 
 
+async def _delete_and_warn(bot: Bot, msg, reason: str, log_detail: str) -> None:
+    user = msg.from_user
+    name = _display_name(user)
+
+    try:
+        await bot.delete_message(chat_id=msg.chat.id, message_id=msg.message_id)
+    except TelegramError as err:
+        print(f"[guard] could not delete msg {msg.message_id}: {err}")
+
+    try:
+        await bot.send_message(
+            chat_id=msg.chat.id,
+            text=f"{name}, your message was removed — {reason}",
+        )
+    except TelegramError as err:
+        print(f"[guard] could not send warning: {err}")
+
+    print(
+        f"[guard] deleted msg from {name} (id={user.id}) in chat {msg.chat.id} — "
+        f"{log_detail}"
+    )
+
+
 async def _handle_message(bot: Bot, msg, is_edit: bool = False) -> None:
     if msg.chat.type not in ("group", "supergroup"):
         return
@@ -304,6 +328,15 @@ async def _handle_message(bot: Bot, msg, is_edit: bool = False) -> None:
 
     hosts = extract_hostnames(msg)
     if not hosts:
+        text = msg.text or msg.caption or ""
+        if await is_spam(text):
+            await _delete_and_warn(
+                bot,
+                msg,
+                reason="message flagged as spam.",
+                log_detail=f"AI spam verdict (preview: {text[:60]!r})",
+            )
+            return
         await _handle_mention(bot, msg)
         return
 

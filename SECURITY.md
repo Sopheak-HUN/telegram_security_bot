@@ -107,6 +107,15 @@ If you are deploying this bot, follow these practices.
 - Set **Production** scope on every secret — don't accidentally only set it on Preview.
 - Keep an eye on Vercel function logs for `[webhook]`, `[guard]`, and `[setup]` lines — sudden spikes are an early sign something is off.
 
+### AI classifier privacy (optional feature)
+
+If `GEMINI_API_KEY` is set, the bot sends the text of any message without a URL to the Google Gemini API for spam classification. On the free tier, Google may use submitted prompts to improve its models. The operator should be aware:
+
+- Treat the group chat as **not end-to-end private** while this is enabled.
+- Do not enable in groups that handle PII, medical data, legal correspondence, or other regulated content without first reviewing Google's [AI Studio terms](https://ai.google.dev/gemini-api/terms) and considering a paid tier with stricter data terms.
+- To disable, remove `GEMINI_API_KEY` from Vercel env vars and redeploy. The bot falls back to URL-whitelist filtering only.
+- Verdicts (the boolean spam / not-spam result) are cached in Upstash Redis for one hour, keyed by a SHA-1 hash of the normalized text. The raw message text is **not** stored in Redis.
+
 ### Upstash hardening
 
 - Use a dedicated database for this bot — don't reuse credentials with other services.

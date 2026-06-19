@@ -179,6 +179,32 @@ All commands must be sent inside a group. Only group admins receive a response.
 
 The bot accepts `youtube.com`, `https://youtube.com`, or `https://youtube.com/watch?v=x` — it extracts the hostname.
 
+## AI spam classifier (optional)
+
+For messages **without a URL**, the bot can call Google Gemini 2.0 Flash to decide whether the text is spam (crypto/casino/MLM/etc). The free tier covers most groups.
+
+### Enable
+
+1. Get a free API key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) — no credit card.
+2. Add it to Vercel:
+   ```powershell
+   npx vercel env add GEMINI_API_KEY production
+   npx vercel --prod
+   ```
+3. That's it. No code change needed — the classifier auto-activates when the key is present.
+
+### How it behaves
+
+- Runs **only** when a message has no URL (URLs go through the whitelist as before).
+- Skips messages shorter than 10 chars or longer than 600 chars.
+- Free tier: **1500 requests/day** on Gemini 2.0 Flash, 15 req/minute. Plenty for most groups.
+- Verdicts are cached in Redis for an hour (SHA-1 of the message), so copy-paste spam floods only cost the first request.
+- On any AI failure (network, quota exhausted, missing key), the bot **fails open** — the message is not deleted.
+
+To disable, remove `GEMINI_API_KEY` from Vercel and redeploy. The URL whitelist keeps working unchanged.
+
+Privacy: when enabled, plain-text messages without URLs are sent to Google. See [SECURITY.md](./SECURITY.md#ai-classifier-privacy-optional-feature) for the full implications.
+
 ## Admin behaviour
 
 There are **two separate** admin checks in the code:

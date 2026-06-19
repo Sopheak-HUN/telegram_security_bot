@@ -18,3 +18,5 @@ venv/
 # Leftover Node artifacts (in case of mixed history)
 node_modules/
 bun.lock
+
+.env*

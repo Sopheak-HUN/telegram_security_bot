@@ -11,6 +11,7 @@ Two deployment modes share the same bot logic:
 
 - Detects URLs in messages, captions, edits, mentions (`@username`), and text-link buttons.
 - Deletes **any** unapproved link, including from admins (admin bypass has been removed — see [Admin behaviour](#admin-behaviour)).
+- Deletes executable and script file attachments (`.exe`, `.msi`, `.bat`, `.sh`, `.scr`, `.com`, `.vbs`, and more — see [Blocked file types](#blocked-file-types)), including from admins.
 - Posts a short warning reply identifying the offending domains.
 - Logs every removal with user ID, chat ID, and offending host(s) to Vercel function logs.
 - Admins manage the whitelist in-chat with `/addlink`, `/removelink`, `/listlinks`.
@@ -34,6 +35,8 @@ Two deployment modes share the same bot logic:
 │   ├── __init__.py
 │   ├── bot.py         # dispatcher + handlers (shared)
 │   └── whitelist.py   # Upstash Redis helpers
+├── tools/
+│   └── cleanup_history.py  # one-shot sweep of OLD blocked files (Telethon, run locally)
 ├── index.py           # local long-polling entrypoint
 ├── whitelist.json     # seed list — copied into Redis on first /api/setup
 ├── requirements.txt
@@ -167,6 +170,44 @@ Stored as a Redis set under the key `whitelist:domains`.
 - Manage from inside the group with `/addlink`, `/removelink`, `/listlinks`.
 - Or edit directly in the [Upstash console](https://console.upstash.com) → your DB → Data Browser.
 
+## Blocked file types
+
+Any **document** attachment whose file name ends in an executable or script extension is deleted immediately, with a warning reply — same policy as the link guard, admins included. Photos, videos, voice notes, and stickers are unaffected (Telegram re-encodes those; they can't carry executables).
+
+Blocked extensions (defined in `BLOCKED_EXTENSIONS` in `lib/bot.py`):
+
+| Category | Extensions |
+|---|---|
+| Windows executables / installers | `exe` `msi` `msp` `com` `scr` `pif` `cpl` `dll` `msc` |
+| Windows scripts & shortcuts | `bat` `cmd` `vbs` `vbe` `js` `jse` `wsf` `wsh` `hta` `ps1` `psm1` `psd1` `reg` `lnk` |
+| Unix / macOS | `sh` `bash` `zsh` `csh` `run` `bin` `command` `app` `dmg` `deb` `rpm` `appimage` |
+| Interpreted languages & bytecode | `py` `pyw` `pyc` `pl` `rb` `php` `jar` |
+| Mobile packages | `apk` `xapk` `ipa` |
+
+Notes:
+
+- Matching is case-insensitive and uses the **final** extension, so `invoice.pdf.exe` and `SETUP.EXE.` are caught.
+- Archives (`zip`, `rar`, `7z`) are **not** blocked — an executable hidden inside one can't run until extracted. Add them to `BLOCKED_EXTENSIONS` if your group doesn't need file sharing.
+- Source-code extensions (`py`, `js`, `sh`, …) are blocked because script hosts execute them on double-click. If your group shares code, remove them from the set or share via a paste service instead.
+
+### Cleaning up OLD files (history sweep)
+
+The live bot deletes blocked files **as they arrive**. It cannot retroactively delete files sent before it was active — the Telegram **Bot API has no access to message history**. (Short downtime is fine: Telegram queues undelivered updates for up to 24 h and the bot cleans them on recovery.)
+
+To sweep files that are already in the group, run the one-shot script `tools/cleanup_history.py`. It logs in as **your own Telegram account** (which *can* read history) via [Telethon](https://docs.telethon.dev/), scans the full history, and deletes every document matching `BLOCKED_EXTENSIONS`. You must be an admin with delete permission in the group.
+
+```powershell
+pip install telethon
+# create api_id / api_hash at https://my.telegram.org/apps then:
+$env:TG_API_ID = "1234567"
+$env:TG_API_HASH = "0123456789abcdef0123456789abcdef"
+
+python tools/cleanup_history.py --chat @yourgroup --dry-run   # preview matches
+python tools/cleanup_history.py --chat @yourgroup             # delete for everyone
+```
+
+The first run asks for your phone number and a login code, then saves `tools/cleanup-session.session`. That file grants full access to your account — it is git-ignored; never share or commit it. Telethon is **not** in `requirements.txt` on purpose: it's only needed locally for this script, never on Vercel.
+
 ## Commands
 
 All commands must be sent inside a group. Only group admins receive a response.
@@ -225,6 +266,7 @@ right after the `if not msg.from_user: return` line.
 
 For every message in a group (admin or not):
 
+0. If the message carries a document with a blocked executable/script extension, it is deleted immediately — before command routing, so an `.exe` with a `/command` caption can't slip past.
 1. Reads Telegram's message `entities` to find URLs, text-links, and `@mentions`.
 2. Runs a fallback regex over the text/caption to catch bare links Telegram didn't tag.
 3. Normalizes each URL to a lowercase hostname via `urllib.parse`, then validates against a strict domain regex (rejects junk like `not a url`).

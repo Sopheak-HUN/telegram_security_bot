@@ -19,6 +19,23 @@ _HOSTNAME_RE = re.compile(
     r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
 )
 
+# File extensions that can execute code or scripts when opened — any document
+# whose name ends in one of these is deleted on sight.
+BLOCKED_EXTENSIONS = {
+    # Windows executables / installers
+    "exe", "msi", "msp", "com", "scr", "pif", "cpl", "dll", "msc", "rtf"
+    # Windows scripts, script hosts & shortcuts
+    "bat", "cmd", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta",
+    "ps1", "psm1", "psd1", "reg", "lnk",
+    # Unix / macOS executables & shell scripts
+    "sh", "bash", "zsh", "csh", "run", "bin", "command", "app", "dmg",
+    "deb", "rpm", "appimage",
+    # Interpreted languages & bytecode
+    "py", "pyw", "pyc", "pl", "rb", "php", "jar",
+    # Mobile packages
+    "apk", "xapk", "ipa",
+}
+
 
 def get_bot() -> Bot:
     token = os.environ.get("BOT_TOKEN")
@@ -68,6 +85,26 @@ def extract_hostnames(msg) -> list[str]:
                 hosts.add(host)
 
     return list(hosts)
+
+
+def blocked_extension_for_name(file_name: str | None) -> str | None:
+    """Return the blocked extension of a file name, or None."""
+    if not file_name:
+        return None
+    # normalize: lowercase, drop trailing dots/spaces ("evil.EXE." -> "evil.exe")
+    name = file_name.lower().strip().rstrip(". ")
+    if "." not in name:
+        return None
+    ext = name.rsplit(".", 1)[1].strip()
+    return ext if ext in BLOCKED_EXTENSIONS else None
+
+
+def blocked_extension(msg) -> str | None:
+    """Return the blocked extension of an attached document, or None."""
+    doc = getattr(msg, "document", None)
+    if doc is None:
+        return None
+    return blocked_extension_for_name(doc.file_name)
 
 
 _bot_username: str | None = None
@@ -377,6 +414,20 @@ async def dispatch_update(update_dict: dict) -> None:
         msg = update.message or update.edited_message
         if msg is None:
             return
+
+        # File guard runs first — before command routing — so an executable
+        # with a "/command" caption can't slip past. Applies to everyone,
+        # admins included (same policy as the link guard).
+        if msg.chat.type in ("group", "supergroup") and msg.from_user:
+            ext = blocked_extension(msg)
+            if ext is not None:
+                await _delete_and_warn(
+                    bot,
+                    msg,
+                    reason=f".{ext} files are not allowed in this group.",
+                    log_detail=f"blocked executable file {msg.document.file_name!r}",
+                )
+                return
 
         text = msg.text or msg.caption or ""
         if text.startswith("/"):

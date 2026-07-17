@@ -5,6 +5,10 @@
 skills-lock.json
 .vercel
 
+# Telethon session files (grant full access to the logged-in account)
+*.session
+*.session-journal
+
 # Python
 __pycache__/
 *.py[cod]

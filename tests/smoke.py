@@ -21,20 +21,30 @@ os.environ.setdefault("BOT_TOKEN", "test-token")
 os.environ.pop("GEMINI_API_KEY", None)  # explicitly disable AI for these tests
 
 from lib.ai import _cache_key, is_spam  # noqa: E402
-from lib.bot import URL_REGEX, extract_hostnames, to_hostname  # noqa: E402
+from lib.bot import (  # noqa: E402
+    URL_REGEX,
+    blocked_extension,
+    extract_hostnames,
+    to_hostname,
+)
 
 
-def fake_msg(text=None, caption=None, entities=None, caption_entities=None):
+def fake_msg(text=None, caption=None, entities=None, caption_entities=None, document=None):
     return SimpleNamespace(
         text=text,
         caption=caption,
         entities=entities or [],
         caption_entities=caption_entities or [],
+        document=document,
     )
 
 
 def fake_entity(type_, offset, length, url=None):
     return SimpleNamespace(type=type_, offset=offset, length=length, url=url)
+
+
+def fake_doc(file_name):
+    return SimpleNamespace(file_name=file_name)
 
 
 passed = 0
@@ -121,6 +131,36 @@ try:
     )
 finally:
     loop.close()
+
+print("--- blocked_extension: executable file guard ---")
+check("exe blocked", blocked_extension(fake_msg(document=fake_doc("setup.exe"))), "exe")
+check("uppercase blocked", blocked_extension(fake_msg(document=fake_doc("SETUP.EXE"))), "exe")
+check("msi blocked", blocked_extension(fake_msg(document=fake_doc("installer.msi"))), "msi")
+check("bat blocked", blocked_extension(fake_msg(document=fake_doc("run.bat"))), "bat")
+check("sh blocked", blocked_extension(fake_msg(document=fake_doc("deploy.sh"))), "sh")
+check("scr blocked", blocked_extension(fake_msg(document=fake_doc("photo.scr"))), "scr")
+check("com blocked", blocked_extension(fake_msg(document=fake_doc("old.com"))), "com")
+check("vbs blocked", blocked_extension(fake_msg(document=fake_doc("macro.vbs"))), "vbs")
+check(
+    "double extension blocked",
+    blocked_extension(fake_msg(document=fake_doc("invoice.pdf.exe"))),
+    "exe",
+)
+check(
+    "trailing dot blocked",
+    blocked_extension(fake_msg(document=fake_doc("evil.exe."))),
+    "exe",
+)
+check("pdf allowed", blocked_extension(fake_msg(document=fake_doc("notes.pdf"))), None)
+check("zip allowed", blocked_extension(fake_msg(document=fake_doc("photos.zip"))), None)
+check(
+    "exe inside name allowed",
+    blocked_extension(fake_msg(document=fake_doc("executive-summary.docx"))),
+    None,
+)
+check("no extension allowed", blocked_extension(fake_msg(document=fake_doc("README"))), None)
+check("no file_name allowed", blocked_extension(fake_msg(document=fake_doc(None))), None)
+check("no document allowed", blocked_extension(fake_msg(text="just text")), None)
 
 print("--- ai._cache_key: determinism ---")
 k1 = _cache_key("Hello World")

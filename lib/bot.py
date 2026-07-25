@@ -23,7 +23,7 @@ _HOSTNAME_RE = re.compile(
 # whose name ends in one of these is deleted on sight.
 BLOCKED_EXTENSIONS = {
     # Windows executables / installers
-    "exe", "msi", "msp", "com", "scr", "pif", "cpl", "dll", "msc", "rtf"
+    "exe", "msi", "msp", "com", "scr", "pif", "cpl", "dll", "msc", "rtf","z"
     # Windows scripts, script hosts & shortcuts
     "bat", "cmd", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta",
     "ps1", "psm1", "psd1", "reg", "lnk",

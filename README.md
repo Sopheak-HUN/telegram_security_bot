@@ -15,6 +15,7 @@ Two deployment modes share the same bot logic:
 - Posts a short warning reply identifying the offending domains.
 - Logs every removal with user ID, chat ID, and offending host(s) to Vercel function logs.
 - Admins manage the whitelist in-chat with `/addlink`, `/removelink`, `/listlinks`.
+- Group dashboard at `/api/groups` — see every group the bot is in, its admin status, and last activity (HTML UI + JSON API — see [Where is the bot?](#where-is-the-bot-group-dashboard)).
 - Subdomains are treated as distinct entries (e.g. `youtube.com` ≠ `m.youtube.com`).
 - Strict hostname validation — junk input to `/addlink foo bar` is rejected.
 
@@ -30,10 +31,12 @@ Two deployment modes share the same bot logic:
 .
 ├── api/
 │   ├── telegram.py    # POST webhook receiver
-│   └── setup.py       # GET one-shot: registers webhook + seeds Redis
+│   ├── setup.py       # GET one-shot: registers webhook + seeds Redis
+│   └── groups.py      # GET dashboard: which groups is the bot in? (HTML + JSON)
 ├── lib/
 │   ├── __init__.py
 │   ├── bot.py         # dispatcher + handlers (shared)
+│   ├── chats.py       # group membership registry (Redis)
 │   └── whitelist.py   # Upstash Redis helpers
 ├── tools/
 │   └── cleanup_history.py  # one-shot sweep of OLD blocked files (Telethon, run locally)
@@ -169,6 +172,33 @@ Stored as a Redis set under the key `whitelist:domains`.
 - Domains are matched **exactly** (case-insensitive). `youtube.com` does **not** cover `www.youtube.com` or `m.youtube.com` — add each variant you want.
 - Manage from inside the group with `/addlink`, `/removelink`, `/listlinks`.
 - Or edit directly in the [Upstash console](https://console.upstash.com) → your DB → Data Browser.
+
+## Where is the bot? (group dashboard)
+
+Telegram gives bots **no API to list their own chats**, so the bot keeps its own registry in Redis (`chats:known`): it records a group whenever it is **added/removed/promoted** (`my_chat_member` events) and on **every group message** (this backfills groups it joined before the feature existed, and keeps titles fresh).
+
+Open the dashboard in a browser (uses the same secret as `/api/setup`):
+
+```
+https://<your-app>.vercel.app/api/groups?secret=<SETUP_SECRET>
+```
+
+Shows each group's title, chat id, the bot's status (**admin** ✅ / **member** ⚠️ — a warning, because without admin + delete permission the guard can't delete anything), and last activity.
+
+For scripts or monitoring, append `&format=json`:
+
+```json
+{ "ok": true, "count": 2, "groups": [
+  { "id": -1001234, "type": "supergroup", "title": "My Group",
+    "username": null, "status": "administrator",
+    "first_seen": 1754800000, "last_seen": 1754810000 } ] }
+```
+
+Notes:
+
+- **After deploying this feature, re-run `/api/setup` once.** It re-registers the webhook with `my_chat_member` in `allowed_updates` — without that, Telegram never delivers add/remove events.
+- Groups the bot was already in appear after the **first message** someone sends there (status shows "unknown" until a `my_chat_member` event fires — remove & re-add the bot, or promote/demote it, to populate the status immediately).
+- If the bot is kicked from a group, it disappears from the list automatically.
 
 ## Blocked file types
 

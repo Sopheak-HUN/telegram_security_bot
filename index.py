@@ -26,7 +26,7 @@ async def main() -> None:
                 updates = await bot.get_updates(
                     offset=offset,
                     timeout=30,
-                    allowed_updates=["message", "edited_message"],
+                    allowed_updates=["message", "edited_message", "my_chat_member"],
                 )
             except Exception as err:
                 print(f"[poll] error: {err}")

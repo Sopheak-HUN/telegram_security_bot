@@ -8,6 +8,7 @@ from telegram.error import TelegramError
 
 from .spam import SPAM_LIMIT, SPAM_WINDOW_SECONDS, register_message
 from .ai import is_spam
+from .chats import remove_chat, upsert_chat
 from .whitelist import add_domain, check_hosts, list_domains, remove_domain
 
 URL_REGEX = re.compile(
@@ -23,7 +24,7 @@ _HOSTNAME_RE = re.compile(
 # whose name ends in one of these is deleted on sight.
 BLOCKED_EXTENSIONS = {
     # Windows executables / installers
-    "exe", "msi", "msp", "com", "scr", "pif", "cpl", "dll", "msc", "rtf","z"
+    "exe", "msi", "msp", "com", "scr", "pif", "cpl", "dll", "msc", "rtf", "z",
     # Windows scripts, script hosts & shortcuts
     "bat", "cmd", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta",
     "ps1", "psm1", "psd1", "reg", "lnk",
@@ -405,15 +406,41 @@ async def _handle_message(bot: Bot, msg, is_edit: bool = False) -> None:
     )
 
 
+async def _track_membership(cm) -> None:
+    """Record my_chat_member events: bot added / removed / promoted / demoted."""
+    status = cm.new_chat_member.status
+    try:
+        if status in ("left", "kicked"):
+            await remove_chat(cm.chat.id)
+            print(f"[chats] removed from {cm.chat.title!r} ({cm.chat.id})")
+        else:
+            await upsert_chat(cm.chat, status=status)
+            print(f"[chats] now {status!r} in {cm.chat.title!r} ({cm.chat.id})")
+    except Exception as err:  # Redis trouble must not 500 the webhook
+        print(f"[chats] membership tracking failed: {err}")
+
+
 async def dispatch_update(update_dict: dict) -> None:
     bot = get_bot()
     async with bot:
         update = Update.de_json(update_dict, bot)
         if update is None:
             return
+
+        if update.my_chat_member is not None:
+            await _track_membership(update.my_chat_member)
+            return
+
         msg = update.message or update.edited_message
         if msg is None:
             return
+
+        # Best-effort group registry — lets /api/groups list where the bot is.
+        if msg.chat.type in ("group", "supergroup"):
+            try:
+                await upsert_chat(msg.chat)
+            except Exception as err:
+                print(f"[chats] upsert failed: {err}")
 
         # File guard runs first — before command routing — so an executable
         # with a "/command" caption can't slip past. Applies to everyone,

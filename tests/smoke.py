@@ -162,6 +162,23 @@ check("no extension allowed", blocked_extension(fake_msg(document=fake_doc("READ
 check("no file_name allowed", blocked_extension(fake_msg(document=fake_doc(None))), None)
 check("no document allowed", blocked_extension(fake_msg(text="just text")), None)
 
+print("--- chats.chat_record: group registry records ---")
+from lib.chats import chat_record  # noqa: E402
+
+fake_chat = SimpleNamespace(id=-1001234, type="supergroup", title="My Group", username=None)
+rec = chat_record(fake_chat, status="administrator")
+check("record id", rec["id"], -1001234)
+check("record title", rec["title"], "My Group")
+check("record status", rec["status"], "administrator")
+check("first_seen set", rec["first_seen"] > 0, True)
+
+rec2 = chat_record(fake_chat, status=None, prev=rec)
+check("status kept from prev", rec2["status"], "administrator")
+check("first_seen kept from prev", rec2["first_seen"], rec["first_seen"])
+
+untitled = SimpleNamespace(id=-42, type="group", title=None, username="mygroup")
+check("username fallback title", chat_record(untitled)["title"], "mygroup")
+
 print("--- ai._cache_key: determinism ---")
 k1 = _cache_key("Hello World")
 k2 = _cache_key("  hello world  ")  # whitespace + case normalized

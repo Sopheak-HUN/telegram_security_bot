@@ -19,7 +19,7 @@ async def _do_setup(host: str, drop_pending: bool) -> dict:
         await bot.set_webhook(
             url=url,
             secret_token=os.environ.get("WEBHOOK_SECRET") or None,
-            allowed_updates=["message", "edited_message"],
+            allowed_updates=["message", "edited_message", "my_chat_member"],
             drop_pending_updates=drop_pending,
         )
         info = await bot.get_webhook_info()

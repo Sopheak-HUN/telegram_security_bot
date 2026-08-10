@@ -11,6 +11,9 @@
     },
     "api/setup.py": {
       "maxDuration": 15
+    },
+    "api/groups.py": {
+      "maxDuration": 15
     }
   }
 }

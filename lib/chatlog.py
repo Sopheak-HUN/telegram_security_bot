@@ -33,7 +33,7 @@ def _media_info(msg) -> tuple[str | None, str | None, str]:
             return "sticker_video", sticker.file_id, fallback
         if sticker.is_animated:
             # .tgs is Lottie JSON — browsers can't show it; use the thumbnail
-            thumb = getattr(sticker, "thumbnail", None)
+            thumb = getattr(sticker, "thumbnail", None) or getattr(sticker, "thumb", None)
             return ("sticker", thumb.file_id, fallback) if thumb else (None, None, fallback)
         return "sticker", sticker.file_id, fallback
     if getattr(msg, "animation", None) is not None:  # before document: gifs set both

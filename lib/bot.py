@@ -8,6 +8,7 @@ from telegram.error import TelegramError
 
 from .spam import SPAM_LIMIT, SPAM_WINDOW_SECONDS, register_message
 from .ai import is_spam
+from .chatlog import log_message
 from .chats import remove_chat, upsert_chat
 from .whitelist import add_domain, check_hosts, list_domains, remove_domain
 
@@ -441,6 +442,11 @@ async def dispatch_update(update_dict: dict) -> None:
                 await upsert_chat(msg.chat)
             except Exception as err:
                 print(f"[chats] upsert failed: {err}")
+            # Mirror the message for the admin UI chat view (best effort).
+            try:
+                await log_message(msg)
+            except Exception as err:
+                print(f"[chatlog] mirror failed: {err}")
 
         # File guard runs first — before command routing — so an executable
         # with a "/command" caption can't slip past. Applies to everyone,

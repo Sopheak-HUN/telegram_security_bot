@@ -1,7 +1,7 @@
 """AI-powered spam classifier for messages that contain no URLs.
 
-Uses Google Gemini 2.0 Flash via the `google-genai` SDK. Free tier on
-aistudio.google.com is plenty for most groups (1500 req/day).
+Uses Google Gemini Flash via the `google-genai` SDK. Free tier on
+aistudio.google.com is plenty for most groups.
 
 URLs are still handled by the whitelist (cheap + deterministic). The classifier
 only runs for plain-text messages where the whitelist can't help — e.g. crypto
@@ -20,7 +20,7 @@ CACHE_TTL_SECONDS = 3600
 MIN_LENGTH = 10        # below this, treat as too short to classify
 MAX_LENGTH = 600       # above this, skip — likely legit long-form text
 
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-3.6-flash"
 
 SYSTEM_PROMPT = """You are a content moderator for a Telegram group chat where members speak Khmer and English.
 
@@ -102,7 +102,8 @@ async def is_spam(text: str) -> bool:
             contents=stripped,
             config={
                 "system_instruction": SYSTEM_PROMPT,
-                "max_output_tokens": 4,
+                # Gemini 3.x thinks before answering — leave room for both
+                "max_output_tokens": 256,
                 "temperature": 0,
             },
         )

@@ -76,6 +76,42 @@ def _reply_info(msg) -> dict | None:
     }
 
 
+REACT_PREFIX = "ui:chat:react:"
+
+
+async def track_reaction(mr) -> None:
+    """Record a MessageReactionUpdated event into the per-chat reactions hash.
+
+    Stored as field = message_id, value = JSON {emoji: [user names]}. Requires
+    "message_reaction" in the webhook's allowed_updates and bot admin rights.
+    """
+    user = _sender_name(mr.user) if mr.user else "anonymous"
+    redis = _get_redis()
+    key = f"{REACT_PREFIX}{mr.chat.id}"
+    raw = await redis.hget(key, str(mr.message_id))
+    try:
+        data = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        data = {}
+
+    for emoji in list(data.keys()):
+        if user in data[emoji]:
+            data[emoji].remove(user)
+            if not data[emoji]:
+                del data[emoji]
+    for r in mr.new_reaction or []:
+        emoji = getattr(r, "emoji", None)  # custom-emoji reactions have none
+        if emoji:
+            data.setdefault(emoji, [])
+            if user not in data[emoji]:
+                data[emoji].append(user)
+
+    if data:
+        await redis.hset(key, str(mr.message_id), json.dumps(data))
+    else:
+        await redis.hdel(key, str(mr.message_id))
+
+
 async def log_message(msg, direction: str = "in") -> None:
     kind, file_id, fallback = _media_info(msg)
     text = (msg.text or msg.caption or "")[:MAX_TEXT]

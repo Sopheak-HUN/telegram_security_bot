@@ -8,7 +8,7 @@ from telegram.error import TelegramError
 
 from .spam import SPAM_LIMIT, SPAM_WINDOW_SECONDS, register_message
 from .ai import is_spam
-from .chatlog import log_message
+from .chatlog import log_message, track_reaction
 from .chats import remove_chat, upsert_chat
 from .whitelist import add_domain, check_hosts, list_domains, remove_domain
 
@@ -445,6 +445,13 @@ async def dispatch_update(update_dict: dict) -> None:
 
         if update.my_chat_member is not None:
             await _track_membership(update.my_chat_member)
+            return
+
+        if update.message_reaction is not None:
+            try:
+                await track_reaction(update.message_reaction)
+            except Exception as err:  # best effort — reactions are cosmetic
+                print(f"[react] tracking failed: {err}")
             return
 
         msg = update.message or update.edited_message

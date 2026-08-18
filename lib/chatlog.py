@@ -7,6 +7,11 @@ every group message it receives into a capped Redis list per chat:
 
 The admin UI writes its own broadcasts into the same list with dir="out",
 so the panel's chat pane can interleave both directions.
+
+Media messages carry the Telegram file_id in "media" plus a "kind", and the
+admin UI fetches the bytes on demand through its own getFile proxy:
+
+    kind: photo | sticker | sticker_video | gif | video | voice | audio | file
 """
 
 import json
@@ -19,27 +24,34 @@ MAX_ENTRIES = 200
 MAX_TEXT = 1000
 
 
-def _preview(msg) -> str | None:
-    """Text of the message, or a short placeholder for media."""
-    text = msg.text or msg.caption
-    if text:
-        return text[:MAX_TEXT]
-    if getattr(msg, "sticker", None) is not None:
-        emoji = msg.sticker.emoji or ""
-        return f"[sticker] {emoji}".strip()
+def _media_info(msg) -> tuple[str | None, str | None, str]:
+    """(kind, file_id, fallback_text) for the message's media, if any."""
+    sticker = getattr(msg, "sticker", None)
+    if sticker is not None:
+        fallback = f"[sticker] {sticker.emoji or ''}".strip()
+        if sticker.is_video:
+            return "sticker_video", sticker.file_id, fallback
+        if sticker.is_animated:
+            # .tgs is Lottie JSON — browsers can't show it; use the thumbnail
+            thumb = getattr(sticker, "thumbnail", None)
+            return ("sticker", thumb.file_id, fallback) if thumb else (None, None, fallback)
+        return "sticker", sticker.file_id, fallback
     if getattr(msg, "animation", None) is not None:  # before document: gifs set both
-        return "[gif]"
-    if getattr(msg, "document", None) is not None:
-        return f"[file] {msg.document.file_name or ''}".strip()
+        return "gif", msg.animation.file_id, "[gif]"
     if getattr(msg, "photo", None):
-        return "[photo]"
+        return "photo", msg.photo[-1].file_id, "[photo]"
     if getattr(msg, "video", None) is not None:
-        return "[video]"
+        return "video", msg.video.file_id, "[video]"
+    if getattr(msg, "video_note", None) is not None:
+        return "video", msg.video_note.file_id, "[video note]"
     if getattr(msg, "voice", None) is not None:
-        return "[voice message]"
+        return "voice", msg.voice.file_id, "[voice message]"
     if getattr(msg, "audio", None) is not None:
-        return "[audio]"
-    return None
+        return "audio", msg.audio.file_id, "[audio]"
+    doc = getattr(msg, "document", None)
+    if doc is not None:
+        return "file", doc.file_id, f"[file] {doc.file_name or ''}".strip()
+    return None, None, ""
 
 
 def _sender_name(user) -> str:
@@ -51,18 +63,28 @@ def _sender_name(user) -> str:
 
 
 async def log_message(msg) -> None:
-    preview = _preview(msg)
-    if preview is None:
-        return
+    kind, file_id, fallback = _media_info(msg)
+    text = (msg.text or msg.caption or "")[:MAX_TEXT]
+    if not text and kind is None:
+        if not fallback:
+            return  # nothing we can show (service message etc.)
+        text = fallback
+
     user = msg.from_user
     record = {
         "id": msg.message_id,
         "dir": "in",
         "from": _sender_name(user),
         "uid": user.id if user else None,
-        "text": preview,
+        "text": text,
         "at": int(msg.date.timestamp()) if msg.date else int(time.time()),
     }
+    if kind and file_id:
+        record["kind"] = kind
+        record["media"] = file_id
+        if kind == "file":
+            record["name"] = (msg.document.file_name or "file")[:120]
+
     redis = _get_redis()
     key = f"{KEY_PREFIX}{msg.chat.id}"
     await redis.lpush(key, json.dumps(record))

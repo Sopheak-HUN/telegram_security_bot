@@ -62,7 +62,21 @@ def _sender_name(user) -> str:
     return "user"
 
 
-async def log_message(msg) -> None:
+def _reply_info(msg) -> dict | None:
+    """Compact context of the message this one replies to, if any."""
+    r = getattr(msg, "reply_to_message", None)
+    # in forum topics every message "replies" to the topic service message
+    if r is None or getattr(r, "forum_topic_created", None) is not None:
+        return None
+    preview = r.text or r.caption or _media_info(r)[2] or ""
+    return {
+        "id": r.message_id,
+        "from": _sender_name(r.from_user),
+        "text": preview[:80],
+    }
+
+
+async def log_message(msg, direction: str = "in") -> None:
     kind, file_id, fallback = _media_info(msg)
     text = (msg.text or msg.caption or "")[:MAX_TEXT]
     if not text and kind is None:
@@ -73,12 +87,15 @@ async def log_message(msg) -> None:
     user = msg.from_user
     record = {
         "id": msg.message_id,
-        "dir": "in",
+        "dir": direction,
         "from": _sender_name(user),
         "uid": user.id if user else None,
         "text": text,
         "at": int(msg.date.timestamp()) if msg.date else int(time.time()),
     }
+    reply = _reply_info(msg)
+    if reply:
+        record["reply"] = reply
     if kind and file_id:
         record["kind"] = kind
         record["media"] = file_id

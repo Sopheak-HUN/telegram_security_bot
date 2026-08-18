@@ -146,6 +146,21 @@ def _display_name(user) -> str:
     return "user"
 
 
+async def _send_logged(bot: Bot, **kwargs):
+    """send_message + mirror the sent message into the admin UI chat log.
+
+    Bots never receive their own messages via webhook, so without this the
+    panel's chat view would miss everything the bot says in the group.
+    """
+    sent = await bot.send_message(**kwargs)
+    try:
+        if sent.chat.type in ("group", "supergroup"):
+            await log_message(sent, direction="out")
+    except Exception as err:  # the message is sent — logging must not break flow
+        print(f"[chatlog] mirror sent failed: {err}")
+    return sent
+
+
 async def _handle_delete_request(bot: Bot, msg) -> None:
     if not await is_admin(bot, msg.chat.id, msg.from_user.id):
         return  # silently ignore non-admins
@@ -154,7 +169,7 @@ async def _handle_delete_request(bot: Bot, msg) -> None:
     # In forum topics every message "replies" to the topic service message;
     # only act on a real reply to a user's message.
     if target is None or target.forum_topic_created is not None:
-        await bot.send_message(
+        await _send_logged(bot,
             chat_id=msg.chat.id,
             text="Reply to the message you want removed, mention me and include !delete.",
         )
@@ -175,7 +190,7 @@ async def _handle_delete_request(bot: Bot, msg) -> None:
         print(f"[mod] could not delete trigger msg {msg.message_id}: {err}")
 
     try:
-        await bot.send_message(
+        await _send_logged(bot,
             chat_id=msg.chat.id,
             text=f"⚠️ {name}, your message was removed by an admin.",
         )
@@ -201,7 +216,7 @@ async def _handle_mention(bot: Bot, msg) -> None:
 
     name = _display_name(msg.from_user)
     try:
-        await bot.send_message(
+        await _send_logged(bot,
             chat_id=msg.chat.id,
             text=f"Hello {name} 👋",
             reply_parameters=ReplyParameters(message_id=msg.message_id),
@@ -237,14 +252,14 @@ async def _handle_command(bot: Bot, msg, text: str) -> None:
     cmd = text.split()[0].lstrip("/").split("@", 1)[0].lower()
 
     if cmd == "start":
-        await bot.send_message(
+        await _send_logged(bot,
             chat_id=msg.chat.id,
             text="Link-guard bot is active. Add me as admin with delete-messages permission.",
         )
         return
 
     if msg.chat.type == "private":
-        await bot.send_message(chat_id=msg.chat.id, text="Run this inside a group.")
+        await _send_logged(bot,chat_id=msg.chat.id, text="Run this inside a group.")
         return
 
     if not msg.from_user:
@@ -257,47 +272,47 @@ async def _handle_command(bot: Bot, msg, text: str) -> None:
     if cmd == "listlinks":
         domains = await list_domains()
         if not domains:
-            await bot.send_message(
+            await _send_logged(bot,
                 chat_id=msg.chat.id,
                 text="Whitelist is empty. All links will be removed.",
             )
             return
         body = "\n".join(f"• {d}" for d in domains)
-        await bot.send_message(
+        await _send_logged(bot,
             chat_id=msg.chat.id, text=f"Approved domains ({len(domains)}):\n{body}"
         )
 
     elif cmd == "addlink":
         if not arg:
-            await bot.send_message(
+            await _send_logged(bot,
                 chat_id=msg.chat.id,
                 text="Usage: /addlink <domain>  (e.g. /addlink youtube.com)",
             )
             return
         host = to_hostname(arg)
         if not host:
-            await bot.send_message(
+            await _send_logged(bot,
                 chat_id=msg.chat.id, text=f'Could not parse "{arg}" as a domain.'
             )
             return
         added = await add_domain(host)
-        await bot.send_message(
+        await _send_logged(bot,
             chat_id=msg.chat.id,
             text=f"Added to whitelist: {host}" if added else f"Already approved: {host}",
         )
 
     elif cmd == "removelink":
         if not arg:
-            await bot.send_message(chat_id=msg.chat.id, text="Usage: /removelink <domain>")
+            await _send_logged(bot,chat_id=msg.chat.id, text="Usage: /removelink <domain>")
             return
         host = to_hostname(arg)
         if not host:
-            await bot.send_message(
+            await _send_logged(bot,
                 chat_id=msg.chat.id, text=f'Could not parse "{arg}" as a domain.'
             )
             return
         removed = await remove_domain(host)
-        await bot.send_message(
+        await _send_logged(bot,
             chat_id=msg.chat.id,
             text=f"Removed from whitelist: {host}" if removed else f"Not in whitelist: {host}",
         )
@@ -316,7 +331,7 @@ async def _warn_if_spamming(bot: Bot, msg) -> None:
 
     name = _display_name(msg.from_user)
     try:
-        await bot.send_message(
+        await _send_logged(bot,
             chat_id=msg.chat.id,
             text=(
                 f"⚠️ {name}, please slow down — "
@@ -338,7 +353,7 @@ async def _delete_and_warn(bot: Bot, msg, reason: str, log_detail: str) -> None:
         print(f"[guard] could not delete msg {msg.message_id}: {err}")
 
     try:
-        await bot.send_message(
+        await _send_logged(bot,
             chat_id=msg.chat.id,
             text=f"{name}, your message was removed — {reason}",
         )
@@ -394,7 +409,7 @@ async def _handle_message(bot: Bot, msg, is_edit: bool = False) -> None:
         print(f"[guard] could not delete msg {msg.message_id}: {err}")
 
     try:
-        await bot.send_message(
+        await _send_logged(bot,
             chat_id=msg.chat.id,
             text=f"{name}, your message was removed — link not approved in this group.",
         )

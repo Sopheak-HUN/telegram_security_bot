@@ -1,6 +1,13 @@
-# Telegram Link-Guard Bot (Python)
+# Telegram Group-Guard Bot
 
-A Telegram group bot built with [python-telegram-bot](https://python-telegram-bot.org/) that automatically deletes any message containing a link whose domain is **not** on an approved whitelist. Keeps groups free of unsolicited links, ads, and online-game promos.
+A Telegram group moderation bot built with [python-telegram-bot](https://python-telegram-bot.org/). It protects a group with four layers:
+
+1. **Link whitelist** — deletes any message containing a link whose domain is not on an approved whitelist.
+2. **File guard** — deletes executable / script file attachments (`.exe`, `.bat`, `.sh`, `.apk`, …), admins included.
+3. **Flood warning** — warns users who send too many messages in a short window.
+4. **AI spam classifier (optional)** — Google Gemini flags link-free spam (crypto, casino, MLM, …).
+
+Plus quality-of-life extras: admins can remove any message with a reply + `!delete`, and anyone can ask `@YourBot weather` for current conditions at their shared location.
 
 Two deployment modes share the same bot logic:
 
@@ -13,11 +20,15 @@ Two deployment modes share the same bot logic:
 - Deletes **any** unapproved link, including from admins (admin bypass has been removed — see [Admin behaviour](#admin-behaviour)).
 - Deletes executable and script file attachments (`.exe`, `.msi`, `.bat`, `.sh`, `.scr`, `.com`, `.vbs`, and more — see [Blocked file types](#blocked-file-types)), including from admins.
 - Posts a short warning reply identifying the offending domains.
+- Warns users who send too many messages in a short window (tunable via `SPAM_LIMIT` / `SPAM_WINDOW_SECONDS`).
+- Admins can remove any message by replying to it with a mention of the bot + `!delete`.
 - Logs every removal with user ID, chat ID, and offending host(s) to Vercel function logs.
+- Mirrors group activity (messages, reactions, the bot's own replies) into Redis so an external admin panel can render a chat view.
 - Admins manage the whitelist in-chat with `/addlink`, `/removelink`, `/listlinks`.
 - Group dashboard at `/api/groups` — see every group the bot is in, its admin status, and last activity (HTML UI + JSON API — see [Where is the bot?](#where-is-the-bot-group-dashboard)).
 - Subdomains are treated as distinct entries (e.g. `youtube.com` ≠ `m.youtube.com`).
 - Strict hostname validation — junk input to `/addlink foo bar` is rejected.
+- Weather on mention — `@YourBot weather` replies with current conditions at the location that user last shared with the bot (📎 attach → Location, in the group or in a private chat). Uses the Google Weather API when `GOOGLE_WEATHER_API_KEY` is set, otherwise the keyless Open-Meteo fallback.
 
 ## Requirements
 
@@ -35,9 +46,15 @@ Two deployment modes share the same bot logic:
 │   └── groups.py      # GET dashboard: which groups is the bot in? (HTML + JSON)
 ├── lib/
 │   ├── __init__.py
+│   ├── ai.py          # Gemini spam classifier (optional, cached in Redis)
 │   ├── bot.py         # dispatcher + handlers (shared)
+│   ├── chatlog.py     # mirrors messages/reactions to Redis for an admin panel
 │   ├── chats.py       # group membership registry (Redis)
+│   ├── spam.py        # flood counter (Redis)
+│   ├── weather.py     # "@bot weather" — Google Weather / Open-Meteo lookup
 │   └── whitelist.py   # Upstash Redis helpers
+├── tests/
+│   └── smoke.py       # offline smoke tests for the pure helpers
 ├── tools/
 │   └── cleanup_history.py  # one-shot sweep of OLD blocked files (Telethon, run locally)
 ├── index.py           # local long-polling entrypoint
@@ -317,7 +334,7 @@ Failures (missing permission, message too old, etc.) are logged but never throw 
 
 ## Security
 
-Found a security issue? **Do not open a public issue.** Email **sopheakhun.dev@gmail.com** with the subject `[SECURITY] telegram-link-guard-bot — <short description>`.
+Found a security issue? **Do not open a public issue.** Email **sopheakhun.dev@gmail.com** with the subject `[SECURITY] telegram-group-guard — <short description>`.
 
 Full policy, threat model, and operational hardening guidance are in [SECURITY.md](./SECURITY.md). Highlights:
 

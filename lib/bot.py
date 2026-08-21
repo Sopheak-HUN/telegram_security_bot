@@ -10,6 +10,7 @@ from .spam import SPAM_LIMIT, SPAM_WINDOW_SECONDS, register_message
 from .ai import is_spam
 from .chatlog import log_message, track_reaction
 from .chats import remove_chat, upsert_chat
+from .weather import format_weather, get_current_weather, get_location, save_location
 from .whitelist import add_domain, check_hosts, list_domains, remove_domain
 
 URL_REGEX = re.compile(
@@ -203,6 +204,43 @@ async def _handle_delete_request(bot: Bot, msg) -> None:
     )
 
 
+async def _handle_weather_request(bot: Bot, msg) -> None:
+    name = _display_name(msg.from_user)
+
+    try:
+        location = await get_location(msg.from_user.id)
+    except Exception as err:  # Redis trouble — treat as no stored location
+        print(f"[weather] location lookup failed: {err}")
+        location = None
+
+    if location is None:
+        await _send_logged(bot,
+            chat_id=msg.chat.id,
+            text=(
+                f"{name}, I don't know your location yet. Share it once via "
+                "📎 attach → Location (here or in a private message to me), "
+                "then mention me with \"weather\" again."
+            ),
+            reply_parameters=ReplyParameters(message_id=msg.message_id),
+        )
+        return
+
+    weather = await get_current_weather(location["lat"], location["lon"])
+    if weather is None:
+        await _send_logged(bot,
+            chat_id=msg.chat.id,
+            text=f"{name}, I couldn't reach the weather service — try again in a bit.",
+            reply_parameters=ReplyParameters(message_id=msg.message_id),
+        )
+        return
+
+    await _send_logged(bot,
+        chat_id=msg.chat.id,
+        text=format_weather(name, weather),
+        reply_parameters=ReplyParameters(message_id=msg.message_id),
+    )
+
+
 async def _handle_mention(bot: Bot, msg) -> None:
     if not msg.from_user:
         return
@@ -212,6 +250,13 @@ async def _handle_mention(bot: Bot, msg) -> None:
     text = msg.text or msg.caption or ""
     if "!delete" in text.lower():
         await _handle_delete_request(bot, msg)
+        return
+
+    if "weather" in text.lower():
+        try:
+            await _handle_weather_request(bot, msg)
+        except TelegramError as err:
+            print(f"[weather] could not reply: {err}")
         return
 
     name = _display_name(msg.from_user)
@@ -469,6 +514,27 @@ async def dispatch_update(update_dict: dict) -> None:
                 await log_message(msg)
             except Exception as err:
                 print(f"[chatlog] mirror failed: {err}")
+
+        # A shared 📍 location (group or private chat) becomes the sender's
+        # stored weather location; "@bot weather" reads it back later. Live
+        # location ticks arrive as edits — keep saving but confirm only once.
+        if msg.location is not None and msg.from_user and not msg.from_user.is_bot:
+            try:
+                await save_location(
+                    msg.from_user.id, msg.location.latitude, msg.location.longitude
+                )
+                if update.message is not None:  # fresh share, not a live-location edit
+                    await _send_logged(bot,
+                        chat_id=msg.chat.id,
+                        text=(
+                            f"📍 Location saved, {_display_name(msg.from_user)}. "
+                            "Mention me with \"weather\" anytime for your forecast."
+                        ),
+                        reply_parameters=ReplyParameters(message_id=msg.message_id),
+                    )
+            except Exception as err:  # feature is best effort — never 500 the webhook
+                print(f"[weather] saving location failed: {err}")
+            return
 
         # File guard runs first — before command routing — so an executable
         # with a "/command" caption can't slip past. Applies to everyone,

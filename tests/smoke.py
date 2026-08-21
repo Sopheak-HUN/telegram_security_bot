@@ -179,6 +179,38 @@ check("first_seen kept from prev", rec2["first_seen"], rec["first_seen"])
 untitled = SimpleNamespace(id=-42, type="group", title=None, username="mygroup")
 check("username fallback title", chat_record(untitled)["title"], "mygroup")
 
+print("--- weather: formatting helpers ---")
+from lib.weather import _condition_emoji, format_weather  # noqa: E402
+
+sunny = {
+    "desc": "Sunny",
+    "temp_c": 31.4,
+    "feels_c": 35.2,
+    "humidity": 68,
+    "wind_kmh": 8.3,
+    "source": "Google Weather",
+}
+out = format_weather("@alice", sunny)
+check("headline names user", "Weather for @alice: Sunny" in out, True)
+check("temp rounded", "31°C" in out, True)
+check("feels-like rounded", "feels like 35°C" in out, True)
+check("humidity", "Humidity 68%" in out, True)
+check("wind", "Wind 8 km/h" in out, True)
+check("source credited", "Google Weather" in out, True)
+
+partial = {"desc": "Rain", "temp_c": None, "feels_c": None, "humidity": None,
+           "wind_kmh": None, "source": "Open-Meteo"}
+out = format_weather("user", partial)
+check("missing values dashed", "— (feels like —)" in out, True)
+
+check("storm emoji", _condition_emoji("Thunderstorm with hail"), "⛈️")
+check("rain emoji", _condition_emoji("Light rain showers"), "🌧️")
+check("snow emoji", _condition_emoji("Heavy snow"), "❄️")
+check("cloud emoji", _condition_emoji("Partly cloudy"), "☁️")
+check("clear emoji", _condition_emoji("Clear sky"), "☀️")
+check("fog emoji", _condition_emoji("Fog"), "🌫️")
+check("unknown emoji fallback", _condition_emoji("—"), "🌤️")
+
 print("--- ai._cache_key: determinism ---")
 k1 = _cache_key("Hello World")
 k2 = _cache_key("  hello world  ")  # whitespace + case normalized

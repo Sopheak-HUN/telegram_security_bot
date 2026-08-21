@@ -16,7 +16,7 @@ This project currently supports security updates on the latest commit of the `ma
 If you believe you have found a vulnerability — for example, a way to bypass the link filter, leak the bot token or webhook secret, or escalate privileges through a bot command — report it privately to:
 
 - **Email:** sopheakhun.dev@gmail.com
-- **Subject line:** `[SECURITY] telegram-link-guard-bot — <short description>`
+- **Subject line:** `[SECURITY] telegram-group-guard — <short description>`
 
 Please include:
 
